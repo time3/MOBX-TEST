@@ -1,9 +1,14 @@
-import {observable, action, computed} from 'mobx';
+import {trace, toJS, spy, observe, observable, action, computed} from 'mobx';
 import React, {Component, Fragment} from 'react';
 import ReactDOM from 'react-dom';
 import PropTypes from 'prop-types';
 import {observer, PropTypes as ObservablePropTypes} from 'mobx-react';
 //TODO 
+
+//不建议生产环境使用
+// spy(event => {
+//     console.log(event);
+// })
 
 class Todo {
     id = Math.random();
@@ -21,6 +26,33 @@ class Todo {
 
 class Store {
     @observable todos = [];
+
+    disposers = [];
+
+    constructor(){
+        //observe函数返回的是disposer的方法，当disposer被执行后observe就停止监视
+        observe(this.todos, change => {
+            this.disposers.forEach(disposer => disposer());
+
+            this.disposers = [];
+
+            for(let todo of change.object) {
+                var disposer = observe(todo, changex => {
+                    // console.log(changex);
+                    this.save();
+                })
+
+                this.disposers.push(disposer);
+            }
+            this.save();
+            // console.log(change);
+        })
+    }
+
+    save() {
+        localStorage.setItem('todos', JSON.stringify(toJS(this.todos)));
+        // console.log(toJS(this.todos));
+    }
 
     @action.bound createTodo(title){
         this.todos.unshift(new Todo(title));
@@ -61,15 +93,17 @@ class TodoItem extends Component {
 }
 
 @observer
-class TodoList extends Component {
-    //参数类型校验代码
-    static propTypes = {
-        store: PropTypes.shape({
-            createTodo: PropTypes.func,
-            //todos是一个可观察的对象
-            todos: ObservablePropTypes.observableArrayOf(ObservablePropTypes.observableObject).isRequired
-        }).isRequired
+class TodoFooter extends Component {
+    static propTypes = {};
+    render() { trace()
+        const left = this.props.left;
+        return <footer>{left} item(s) unfinished</footer>
     }
+}
+
+@observer
+class TodoHeader extends Component {
+    static propTypes = {};
 
     state = {
         inputValue: ''
@@ -94,25 +128,49 @@ class TodoList extends Component {
         this.setState({inputValue});
     }
 
-    render(){
+    render() {
+        return <header>
+        <form onSubmit={this.handleSubmit}>
+            <input type="text" onChange={this.handleChange} value={this.state.inputValue} className="input" placeholder="What needs to be finished?"/>
+        </form>
+    </header>
+    }
+}
+
+@observer
+class TodoView extends Component {
+    static propTypes = {};
+
+    render() {
+        const todos = this.props.todos;
+        return todos.map(todo=>{
+            return <li key={todo.id} className="todo-item">
+                <TodoItem todo={todo} />
+                <span className="delete" onClick={e=>store.removeTodo(todo)}>X</span>
+            </li>
+        })
+    }
+}
+
+@observer
+class TodoList extends Component {
+    //参数类型校验代码
+    static propTypes = {
+        store: PropTypes.shape({
+            createTodo: PropTypes.func,
+            //todos是一个可观察的对象
+            todos: ObservablePropTypes.observableArrayOf(ObservablePropTypes.observableObject).isRequired
+        }).isRequired
+    }
+
+    render(){ trace()
         const store = this.props.store;
         const todos = store.todos;
 
         return <div className="todo-list">
-            <header>
-                <form onSubmit={this.handleSubmit}>
-                    <input type="text" onChange={this.handleChange} value={this.state.inputValue} className="input" placeholder="What needs to be finished?"/>
-                </form>
-            </header>
-            <ul>{todos.map(todo=>{
-                return <li key={todo.id} className="todo-item">
-                    <TodoItem todo={todo} />
-                    <span className="delete" onClick={e=>store.removeTodo(todo)}>X</span>
-                </li>
-            })}</ul>
-            <footer>
-                {store.left} item(s) unfinished
-            </footer>
+            <TodoHeader store={store} />
+            <ul><TodoView todos={todos} /></ul>
+            <TodoFooter left={store.left} />
         </div>
     }
 }
